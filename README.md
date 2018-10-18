@@ -1,12 +1,15 @@
-# kafka-transport
+kafka-transport
+===============
 
-## Install
+Install
+-------
 
 ```
 $ pip install kafka-transport
 ```
 
-## Use
+Use
+---
 
 Package contain `init`, `push`, `subscribe`, `fetch` async functions:
 

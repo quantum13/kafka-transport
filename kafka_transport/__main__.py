@@ -1,6 +1,7 @@
 import asyncio
 import msgpack
 import uuid
+from types import CoroutineType
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 loop = asyncio.get_event_loop()
@@ -43,8 +44,11 @@ async def subscribe(topic, callback):
 
     async for msg in consumer:
         try:
-            value = msgpack.unpackb(msg.value, raw=False)
-            callback({ "key": decode_key(msg.key), "value": value })
+            result = callback({
+                "key": decode_key(msg.key),
+                "value": msgpack.unpackb(msg.value, raw=False) })
+            if type(result) is CoroutineType:
+                asyncio.ensure_future(result)
         except:
             print("Not binary data")
 
@@ -55,7 +59,6 @@ async def push(topic, value, key=None):
     await producer.send(topic, data, key=encode_key(key))
 
 async def fetch(to, _from, value):
-    print("Hello fetch")
     id = str(uuid.uuid4())
 
     consumer = AIOKafkaConsumer(
