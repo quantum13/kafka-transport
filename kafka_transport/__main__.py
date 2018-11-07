@@ -2,6 +2,7 @@ import asyncio
 import msgpack
 import uuid
 import time
+import atexit
 from types import CoroutineType
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
@@ -38,17 +39,27 @@ def decode_key(key) -> str:
     return key.decode('utf8')
 
 
-async def init(host):
+async def init(host, loop=loop):
     global kafka_host
     global producer
 
     kafka_host = host
+
+    if not producer is None:
+        close()
+
     producer = AIOKafkaProducer(
         loop=loop, bootstrap_servers=kafka_host)
     await producer.start()
 
 
-async def subscribe(topic, callback):
+def close():
+    if not producer is None:
+        asyncio.ensure_future(producer.stop())
+
+atexit.register(close)
+
+async def subscribe(topic, callback, loop=loop):
     consumer = AIOKafkaConsumer(
         topic,
         loop=loop, bootstrap_servers=kafka_host)
