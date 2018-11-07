@@ -69,7 +69,7 @@ async def subscribe(topic, callback):
 
 async def push(topic, value, key=None):
     data = msgpack.packb(value, use_bin_type=True)
-    await producer.send(topic, data, key=encode_key(key))
+    await producer.send_and_wait(topic, data, key=encode_key(key))
 
 
 async def fetch(to, _from, value, timeout_ms=600 * 1000, loop=loop):
