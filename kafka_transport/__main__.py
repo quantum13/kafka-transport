@@ -90,8 +90,10 @@ async def fetch(to, _from, value, timeout_ms=600 * 1000, loop=loop):
         _from,
         loop=loop, bootstrap_servers=kafka_host)
 
-    await push(to, value, id)
     await consumer.start()
+    await asyncio.sleep(0.5)
+    
+    await push(to, value, id)
 
     try:
         end_time = time.time() + timeout_ms / 1000
