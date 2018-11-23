@@ -4,12 +4,12 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(name='kafka-transport',
-      version='0.1.9',
+      version='0.2.0',
       long_description=long_description,
       long_description_content_type="text/markdown",
-      url='https://github.com/scientistnik/kafka-transport',
+      url='https://github.com/Karma-blockchain/kafka-transport',
       author='Nozdrin-Plotnitsky Nikolay',
-      author_email='nozdrin.plotnitsky@gmail.com',
+      author_email='nozdrin.plotnitsky@karma.red',
       license='MIT',
       packages=find_packages(),
       install_requires=[
