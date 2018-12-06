@@ -1,10 +1,14 @@
 import asyncio
+import logging
+
 import msgpack
 import uuid
 import time
 import atexit
 from types import CoroutineType
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+
+logger = logging.getLogger('kafka_transport')
 
 loop = asyncio.get_event_loop()
 
@@ -54,28 +58,35 @@ async def init(host, loop=loop):
 
 
 def close():
-    if not producer is None:
+    if producer is not None:
         asyncio.ensure_future(producer.stop())
-
 atexit.register(close)
 
-async def subscribe(topic, callback, loop=loop):
+
+async def subscribe(topic, callback, loop=loop, consumer_options=None):
     consumer = AIOKafkaConsumer(
         topic,
-        loop=loop, bootstrap_servers=kafka_host)
+        loop=loop, bootstrap_servers=kafka_host,
+        **(consumer_options if type(consumer_options) is dict else {})
+    )
     await consumer.start()
 
     async for msg in consumer:
         try:
+            value = msgpack.unpackb(msg.value, raw=False)
+        except:
+            logger.warning("Not binary data: %s", str(msg.value))
+            continue
+
+        try:
             result = callback({
                 "key": decode_key(msg.key),
-                "value": msgpack.unpackb(msg.value, raw=False) })
+                "value": value
+            })
             if type(result) is CoroutineType:
                 asyncio.ensure_future(result)
         except:
-            print("Not binary data")
-
-    # await consumer.stop()
+            logger.warning("Error during calling handler with data: %s", str(value))
 
 
 async def push(topic, value, key=None):
