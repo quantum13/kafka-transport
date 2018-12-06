@@ -61,7 +61,7 @@ def receive_action(consumer_topic: str, producer_topic: str, actions: dict, on_e
             if result is None:
                 return
 
-            if not type(result) is Response:
+            if type(result) is not Response:
                 result = { 'data': result }
         except Exception as e:
             logger.error("Error during processing message: %s (%s)", str(msg), str(e))
