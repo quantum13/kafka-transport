@@ -12,7 +12,7 @@ def produce_error():
         await push(
             producer_topic,
             {
-                'error': str(exception)
+                'error': [str(exception)]
             },
             msg['key']
         )
