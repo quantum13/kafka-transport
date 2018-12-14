@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 
 from .__main__ import subscribe, push
 from types import CoroutineType
@@ -38,8 +39,58 @@ def resend_message(reshipments_count=10):
     return _resend_message
 
 
-def receive_action(consumer_topic: str, producer_topic: str, actions: dict, on_error):
-    async def process_action(msg):
+class Listener(object):
+    def __init__(self,
+                 consumer_topic: str, producer_topic: str,
+                 consumer_options=None):
+        self.actions = {}
+        self.actions_on_error = {}
+        self.msg_to_wait = set()
+        self.msg_to_wait_results = {}
+        self.consumer_topic = consumer_topic
+        self.producer_topic = producer_topic
+
+        asyncio.ensure_future(
+            subscribe(
+                consumer_topic,
+                self.process_msg,
+                consumer_options=consumer_options
+            )
+        )
+
+    async def process_msg(self, msg):
+        if self.msg_to_wait:
+            self._process_msg_to_wait(msg)
+
+        if self.actions:
+            await self._process_action(msg)
+
+    async def fetch(self, data):
+        key = str(uuid.uuid4())
+        self.msg_to_wait.add(key)
+        await push(self.producer_topic, data, key)
+
+        while key not in self.msg_to_wait_results:
+            await asyncio.sleep(0.01)
+        result = self.msg_to_wait_results[key]
+        del self.msg_to_wait_results[key]
+
+        return result
+
+    def add_actions(self, actions: dict, on_error=produce_error()):
+        assert type(actions) is dict, 'Actions must be dict'
+        assert not set(self.actions.keys()) & set(actions.keys()), "Actions already added"
+
+        self.actions = {**self.actions, **actions}
+        for action_name in actions.keys():
+            self.actions_on_error[action_name] = on_error
+
+    def _process_msg_to_wait(self, msg):
+        if msg.get('key') in self.msg_to_wait:
+            self.msg_to_wait_results[msg.get('key')] = msg.get('value')
+            self.msg_to_wait -= {msg.get('key')}
+
+    async def _process_action(self, msg):
         if type(msg) is not dict or type(msg.get('value')) is not dict or \
                 not msg['value'].get('action'):
             return
@@ -47,7 +98,7 @@ def receive_action(consumer_topic: str, producer_topic: str, actions: dict, on_e
         key = msg.get('key')
         value = msg.get('value')
 
-        func = actions.get(value['action'])
+        func = self.actions.get(value['action'])
 
         if func is None:
             return
@@ -65,26 +116,12 @@ def receive_action(consumer_topic: str, producer_topic: str, actions: dict, on_e
                 result = { 'data': result }
         except Exception as e:
             logger.error("Error during processing message: %s (%s)", str(msg), str(e))
-            await on_error(msg, e, consumer_topic, producer_topic)
+            on_error = self.actions_on_error.get(value['action'])
+            if on_error:
+                await on_error(msg, e, self.consumer_topic, self.producer_topic)
             return
 
-        await push(producer_topic, result, key)
-
-    return process_action
-
-
-class Listener(object):
-    def __init__(self,
-                 consumer_topic: str, producer_topic: str,
-                 actions: dict, on_error=produce_error(),
-                 consumer_options=None):
-        assert type(actions) is dict, 'actions must be dict'
-
-        asyncio.ensure_future(subscribe(
-            consumer_topic,
-            receive_action(consumer_topic, producer_topic, actions, on_error),
-            consumer_options=consumer_options
-        ))
+        await push(self.producer_topic, result, key)
 
 
 class Response(dict):
