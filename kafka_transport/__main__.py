@@ -1,10 +1,10 @@
 import asyncio
 import logging
+from typing import Optional
 
 import msgpack
 import uuid
 import time
-import atexit
 from types import CoroutineType
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
@@ -15,6 +15,7 @@ loop = asyncio.get_event_loop()
 kafka_host = None
 producer = None
 
+
 class KafkaTransportError(Exception):
     def __init__(self, msg):
         self.msg = msg
@@ -23,8 +24,8 @@ class KafkaTransportError(Exception):
         return self.msg
 
 
-def encode_key(key) -> str:
-    if key == None:
+def encode_key(key) -> Optional[bytes]:
+    if key is None:
         return None
 
     if type(key) is int:
@@ -33,8 +34,8 @@ def encode_key(key) -> str:
     return key.encode('utf8')
 
 
-def decode_key(key) -> str:
-    if key == None:
+def decode_key(key) -> Optional[str]:
+    if key is None:
         return None
 
     if type(key) is int:
@@ -49,28 +50,36 @@ async def init(host, loop=loop):
 
     kafka_host = host
 
-    if not producer is None:
-        close()
+    if producer is not None:
+        await finalize()
 
     producer = AIOKafkaProducer(
         loop=loop, bootstrap_servers=kafka_host)
     await producer.start()
 
 
-def close():
-    if producer is not None:
-        asyncio.ensure_future(producer.stop())
-atexit.register(close)
+async def finalize():
+    if producer:
+        await producer.stop()
 
 
 async def subscribe(topic, callback, loop=loop, consumer_options=None):
+    consumer = await init_consumer(consumer_options, loop, topic)
+
+    await consume_messages(consumer, callback)
+
+
+async def init_consumer(topic, loop=loop, consumer_options=None) -> AIOKafkaConsumer:
     consumer = AIOKafkaConsumer(
         topic,
         loop=loop, bootstrap_servers=kafka_host,
         **(consumer_options if type(consumer_options) is dict else {})
     )
     await consumer.start()
+    return consumer
 
+
+async def consume_messages(consumer, callback):
     async for msg in consumer:
         try:
             value = msgpack.unpackb(msg.value, raw=False)
@@ -110,15 +119,14 @@ async def fetch(to, _from, value, timeout_ms=600 * 1000, loop=loop):
         end_time = time.time() + timeout_ms / 1000
 
         while time.time() <= end_time:
-          result = await consumer.getmany(timeout_ms=timeout_ms)
-          for messages in result.values():
-              for msg in messages:
-                  key = decode_key(msg.key)
-                  if key == id:
-                      await consumer.stop()
-                      return msgpack.unpackb(msg.value, raw=False)
+            result = await consumer.getmany(timeout_ms=timeout_ms)
+            for messages in result.values():
+                for msg in messages:
+                    key = decode_key(msg.key)
+                    if key == id:
+                        await consumer.stop()
+                        return msgpack.unpackb(msg.value, raw=False)
     finally:
         await consumer.stop()
 
     raise KafkaTransportError("Fetch timeout")
-

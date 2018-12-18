@@ -1,9 +1,13 @@
 import asyncio
 import logging
 import uuid
-
-from .__main__ import subscribe, push
+from asyncio import Future
 from types import CoroutineType
+from typing import Dict
+
+from aiokafka import AIOKafkaConsumer
+
+from .__main__ import init_consumer, push, consume_messages
 
 logger = logging.getLogger('kafka_transport')
 
@@ -45,16 +49,19 @@ class Listener(object):
                  consumer_options=None):
         self.actions = {}
         self.actions_on_error = {}
-        self.msg_to_wait = set()
-        self.msg_to_wait_results = {}
+        self.msg_to_wait: Dict[str, Future] = {}
         self.consumer_topic = consumer_topic
         self.producer_topic = producer_topic
 
+        loop = asyncio.get_event_loop()
+        self.consumer: AIOKafkaConsumer = loop.run_until_complete(
+            init_consumer(consumer_topic, consumer_options=consumer_options)
+        )
+
         asyncio.ensure_future(
-            subscribe(
-                consumer_topic,
+            consume_messages(
+                self.consumer,
                 self.process_msg,
-                consumer_options=consumer_options
             )
         )
 
@@ -65,15 +72,14 @@ class Listener(object):
         if self.actions:
             await self._process_action(msg)
 
-    async def fetch(self, data):
+    async def fetch(self, data, timeout=600):
         key = str(uuid.uuid4())
-        self.msg_to_wait.add(key)
+        self.msg_to_wait[key] = Future()
+
         await push(self.producer_topic, data, key)
 
-        while key not in self.msg_to_wait_results:
-            await asyncio.sleep(0.01)
-        result = self.msg_to_wait_results[key]
-        del self.msg_to_wait_results[key]
+        result = await asyncio.wait_for(self.msg_to_wait[key], timeout=timeout)
+        del self.msg_to_wait[key]
 
         return result
 
@@ -85,10 +91,12 @@ class Listener(object):
         for action_name in actions.keys():
             self.actions_on_error[action_name] = on_error
 
+    async def stop(self):
+        await self.consumer.stop()
+
     def _process_msg_to_wait(self, msg):
         if msg.get('key') in self.msg_to_wait:
-            self.msg_to_wait_results[msg.get('key')] = msg.get('value')
-            self.msg_to_wait -= {msg.get('key')}
+            self.msg_to_wait[msg.get('key')].set_result(msg.get('value'))
 
     async def _process_action(self, msg):
         if type(msg) is not dict or type(msg.get('value')) is not dict or \
