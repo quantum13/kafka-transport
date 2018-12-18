@@ -1,4 +1,5 @@
 import asyncio
+import atexit
 import logging
 from typing import Optional
 
@@ -58,6 +59,12 @@ async def finalize():
         await producer.stop()
     for consumer in consumers:
         await consumer.stop()
+
+
+def close():
+    if producer is not None:
+        asyncio.get_event_loop().run_until_complete(finalize())
+atexit.register(close)
 
 
 async def subscribe(topic, callback, loop=loop, consumer_options=None):
