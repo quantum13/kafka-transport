@@ -7,6 +7,13 @@ class Requester(object):
         self._from = from_topic
 
         self.listener = Listener(from_topic, to_topic, consumer_options)
+        
+    async def start(self) -> 'Requester':
+        await self.listener.start()
+        return self
+    
+    async def stop(self):
+        await self.listener.stop()
 
     def push(self, data):
         return self.listener.fetch(data)
@@ -18,6 +25,3 @@ class Requester(object):
             )
 
         return method
-
-    async def stop(self):
-        await self.listener.stop()

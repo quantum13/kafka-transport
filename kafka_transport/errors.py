@@ -1,0 +1,2 @@
+class KafkaTransportError(Exception):
+    pass

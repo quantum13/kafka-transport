@@ -5,9 +5,8 @@ from asyncio import Future
 from types import CoroutineType
 from typing import Dict
 
-from aiokafka import AIOKafkaConsumer
-
 from .__main__ import init_consumer, push, consume_messages
+from .errors import KafkaTransportError
 
 logger = logging.getLogger('kafka_transport')
 
@@ -43,7 +42,7 @@ def resend_message(reshipments_count=10):
     return _resend_message
 
 
-class Listener(object):
+class Listener:
     def __init__(self,
                  consumer_topic: str, producer_topic: str,
                  consumer_options=None):
@@ -52,18 +51,22 @@ class Listener(object):
         self.msg_to_wait: Dict[str, Future] = {}
         self.consumer_topic = consumer_topic
         self.producer_topic = producer_topic
+        self.consumer_options = consumer_options
+        self.consumer = None
 
-        loop = asyncio.get_event_loop()
-        self.consumer: AIOKafkaConsumer = loop.run_until_complete(
-            init_consumer(consumer_topic, consumer_options=consumer_options)
-        )
-
+    async def start(self) -> 'Listener':
+        self.consumer = await init_consumer(self.consumer_topic, consumer_options=self.consumer_options)
         asyncio.ensure_future(
             consume_messages(
                 self.consumer,
                 self.process_msg,
             )
         )
+        return self
+        
+    async def stop(self):
+        if self.consumer:
+            await self.consumer.stop()
 
     async def process_msg(self, msg):
         if self.msg_to_wait:
@@ -73,6 +76,9 @@ class Listener(object):
             await self._process_action(msg)
 
     async def fetch(self, data, timeout=600):
+        if not self.consumer:
+            KafkaTransportError("Consumer was not started")
+            
         key = str(uuid.uuid4())
         self.msg_to_wait[key] = Future()
 
@@ -83,16 +89,15 @@ class Listener(object):
 
         return result
 
-    def add_actions(self, actions: dict, on_error=produce_error()):
+    def add_actions(self, actions: dict, on_error=produce_error()) -> 'Listener':
         assert type(actions) is dict, 'Actions must be dict'
         assert not set(self.actions.keys()) & set(actions.keys()), "Actions already added"
 
         self.actions = {**self.actions, **actions}
         for action_name in actions.keys():
             self.actions_on_error[action_name] = on_error
-
-    async def stop(self):
-        await self.consumer.stop()
+            
+        return self
 
     def _process_msg_to_wait(self, msg):
         if msg.get('key') in self.msg_to_wait:

@@ -8,20 +8,15 @@ import time
 from types import CoroutineType
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
+from .errors import KafkaTransportError
+
 logger = logging.getLogger('kafka_transport')
 
 loop = asyncio.get_event_loop()
 
 kafka_host = None
 producer = None
-
-
-class KafkaTransportError(Exception):
-    def __init__(self, msg):
-        self.msg = msg
-    
-    def __str__(self):
-        return self.msg
+consumers = []
 
 
 def encode_key(key) -> Optional[bytes]:
@@ -61,11 +56,13 @@ async def init(host, loop=loop):
 async def finalize():
     if producer:
         await producer.stop()
+    for consumer in consumers:
+        await consumer.stop()
 
 
 async def subscribe(topic, callback, loop=loop, consumer_options=None):
-    consumer = await init_consumer(consumer_options, loop, topic)
-
+    consumer = await init_consumer(topic, loop, consumer_options)
+    consumers.append(consumer)
     await consume_messages(consumer, callback)
 
 
@@ -79,7 +76,7 @@ async def init_consumer(topic, loop=loop, consumer_options=None) -> AIOKafkaCons
     return consumer
 
 
-async def consume_messages(consumer, callback):
+async def consume_messages(consumer: AIOKafkaConsumer, callback):
     async for msg in consumer:
         try:
             value = msgpack.unpackb(msg.value, raw=False)
