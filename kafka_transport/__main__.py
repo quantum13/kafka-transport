@@ -63,13 +63,12 @@ async def finalize():
 
 def close():
     if producer is not None:
-        asyncio.get_event_loop().run_until_complete(finalize())
+        loop.run_until_complete(finalize())
 atexit.register(close)
 
 
 async def subscribe(topic, callback, loop=loop, consumer_options=None):
     consumer = await init_consumer(topic, loop, consumer_options)
-    consumers.append(consumer)
     await consume_messages(consumer, callback)
 
 
@@ -79,6 +78,7 @@ async def init_consumer(topic, loop=loop, consumer_options=None) -> AIOKafkaCons
         loop=loop, bootstrap_servers=kafka_host,
         **(consumer_options if type(consumer_options) is dict else {})
     )
+    consumers.append(consumer)
     await consumer.start()
     return consumer
 
