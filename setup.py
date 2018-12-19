@@ -4,7 +4,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(name='kafka-transport',
-      version='0.6.1',
+      version='0.6.2',
       long_description=long_description,
       long_description_content_type="text/markdown",
       url='https://github.com/Karma-blockchain/kafka-transport',
