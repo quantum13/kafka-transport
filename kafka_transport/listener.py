@@ -42,6 +42,32 @@ def resend_message(reshipments_count=10):
     return _resend_message
 
 
+def resend_message_then_produce_error(reshipments_count=10):
+    async def _resend_message(msg, exception, consumer_topic: str, producer_topic: str):
+        reshipment_num = msg.get('value').get('reshipment_num', 0)
+        if reshipment_num >= reshipments_count:
+            logger.error("Stopping resending message: %s", str(msg))
+            await push(
+                producer_topic,
+                {
+                    'errors': [str(exception)]
+                },
+                msg['key']
+            )
+        else:
+            logger.error("Resending message: %s", str(msg))
+            await push(
+                consumer_topic,
+                {
+                    **msg['value'],
+                    'reshipment_num': reshipment_num+1
+                },
+                msg['key']
+            )
+
+    return _resend_message
+
+
 class Listener:
     def __init__(self,
                  consumer_topic: str, producer_topic: str,
