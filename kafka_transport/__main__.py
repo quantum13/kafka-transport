@@ -13,8 +13,6 @@ from .errors import KafkaTransportError
 
 logger = logging.getLogger('kafka_transport')
 
-loop = asyncio.get_event_loop()
-
 kafka_host = None
 producer = None
 consumers = []
@@ -40,7 +38,7 @@ def decode_key(key) -> Optional[str]:
     return key.decode('utf8')
 
 
-async def init(host, loop=loop):
+async def init(host):
     global kafka_host
     global producer
 
@@ -50,7 +48,9 @@ async def init(host, loop=loop):
         await finalize()
 
     producer = AIOKafkaProducer(
-        loop=loop, bootstrap_servers=kafka_host)
+        loop=asyncio.get_event_loop(),
+        bootstrap_servers=kafka_host,
+    )
     await producer.start()
 
 
@@ -63,19 +63,27 @@ async def finalize():
 
 def close():
     if producer is not None:
-        loop.run_until_complete(finalize())
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                logger.warning('Event loop already closed')
+            else:
+                loop.run_until_complete(finalize())
+        except Exception as e:
+            logger.exception(str(e))
 atexit.register(close)
 
 
-async def subscribe(topic, callback, loop=loop, consumer_options=None):
-    consumer = await init_consumer(topic, loop, consumer_options)
+async def subscribe(topic, callback, consumer_options=None):
+    consumer = await init_consumer(topic, consumer_options)
     await consume_messages(consumer, callback)
 
 
-async def init_consumer(topic, loop=loop, consumer_options=None) -> AIOKafkaConsumer:
+async def init_consumer(topic, consumer_options=None) -> AIOKafkaConsumer:
     consumer = AIOKafkaConsumer(
         topic,
-        loop=loop, bootstrap_servers=kafka_host,
+        loop=asyncio.get_event_loop(),
+        bootstrap_servers=kafka_host,
         **(consumer_options if type(consumer_options) is dict else {})
     )
     consumers.append(consumer)
@@ -107,12 +115,14 @@ async def push(topic, value, key=None):
     await producer.send_and_wait(topic, data, key=encode_key(key))
 
 
-async def fetch(to, _from, value, timeout_ms=600 * 1000, loop=loop):
+async def fetch(to, _from, value, timeout_ms=600 * 1000):
     id = str(uuid.uuid4())
 
     consumer = AIOKafkaConsumer(
         _from,
-        loop=loop, bootstrap_servers=kafka_host)
+        loop=asyncio.get_event_loop(),
+        bootstrap_servers=kafka_host
+    )
 
     await consumer.start()
     await asyncio.sleep(0.5)
